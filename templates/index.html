@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FHIR Validator / Repair Desk</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div><p class="eyebrow">FHIR quality workspace</p><h1>Validator / Repair Desk</h1><p class="lede">Validate a resource against Matchbox, inspect the evidence, and review only the repairs the tool can prove.</p></div>
+      <div class="status"><span class="dot"></span><span id="statusText">Ready for a bundle</span></div>
+    </header>
+    <section class="workspace">
+      <form id="validateForm" class="panel intake">
+        <div class="panel-heading"><h2>Run a check</h2><span class="step">01</span></div>
+        <label>FHIR JSON file<input id="file" type="file" accept=".json,application/json" required></label>
+        <label>Profile URL <span class="hint">optional</span><input id="profile" type="url" placeholder="http://hl7.org/fhir/uv/ips/StructureDefinition/Bundle-uv-ips"></label>
+        <button type="submit">Validate and propose repairs <span>↗</span></button>
+        <p class="note">Original input stays untouched. Clinical values and terminology are never invented.</p>
+      </form>
+      <section class="panel result-panel"><div class="panel-heading"><h2>Result</h2><span id="resultBadge" class="badge neutral">WAITING</span></div><div id="result"><p class="empty">Upload a FHIR resource to see validation evidence here.</p></div></section>
+    </section>
+  </main>
+<script>
+const form = document.querySelector('#validateForm');
+const result = document.querySelector('#result');
+const badge = document.querySelector('#resultBadge');
+const statusText = document.querySelector('#statusText');
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = new FormData(form);
+  badge.textContent = 'RUNNING'; badge.className = 'badge running'; statusText.textContent = 'Validating input';
+  result.innerHTML = '<p class="empty">Sending the bundle through local checks and Matchbox...</p>';
+  try {
+    const response = await fetch('/api/validate-file', {method: 'POST', body: data});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Validation failed');
+    const passed = payload.passed;
+    badge.textContent = passed ? 'PASSED' : 'REVIEW'; badge.className = `badge ${passed ? 'passed' : 'review'}`;
+    statusText.textContent = passed ? 'No blocking errors detected' : 'Review required';
+    const repairs = payload.repairs || [];
+    const issues = (payload.iterations || []).flatMap(item => (item.matchbox?.issues || []).filter(issue => ['error','fatal'].includes(issue.severity)));
+    result.innerHTML = `<div class="metrics"><div><strong>${payload.iterations?.length || 0}</strong><span>cycles</span></div><div><strong>${repairs.length}</strong><span>repairs</span></div><div><strong>${issues.length}</strong><span>blocking issues</span></div></div><h3>${repairs.length ? 'Proposed changes' : 'Repair log'}</h3>${repairs.length ? repairs.map(item => `<article class="repair"><span class="rule">${item.rule}</span><code>${item.before} → ${item.after}</code><p>${item.reason}</p></article>`).join('') : '<p class="empty">No deterministic repair was applied.</p>'}<details><summary>Candidate JSON</summary><pre>${JSON.stringify(payload.candidate, null, 2)}</pre></details>`;
+  } catch (error) { badge.textContent = 'ERROR'; badge.className = 'badge review'; statusText.textContent = 'Request could not complete'; result.innerHTML = `<p class="error">${error.message}</p>`; }
+});
+</script>
+</body>
+</html>
