@@ -1,50 +1,116 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FHIR Validator / Repair Desk</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
+
 <body>
   <main class="shell">
     <header class="masthead">
-      <div><p class="eyebrow">FHIR quality workspace</p><h1>Validator / Repair Desk</h1><p class="lede">Validate a resource against Matchbox, inspect the evidence, and review only the repairs the tool can prove.</p></div>
+      <div>
+        <p class="eyebrow">FHIR quality workspace</p>
+        <h1>Validator / Repair Desk</h1>
+        <p class="lede">Validate a resource against Matchbox, inspect the evidence, and review only the repairs the tool
+          can prove.</p>
+      </div>
       <div class="status"><span class="dot"></span><span id="statusText">Ready for a bundle</span></div>
     </header>
     <section class="workspace">
       <form id="validateForm" class="panel intake">
-        <div class="panel-heading"><h2>Run a check</h2><span class="step">01</span></div>
-        <label>FHIR JSON file<input id="file" type="file" accept=".json,application/json" required></label>
-        <label>Profile URL <span class="hint">optional</span><input id="profile" type="url" placeholder="http://hl7.org/fhir/uv/ips/StructureDefinition/Bundle-uv-ips"></label>
+        <div class="panel-heading">
+          <h2>Run a check</h2><span class="step">01</span>
+        </div>
+        <label>FHIR JSON file<input id="file" name="file" type="file" accept=".json,application/json" required></label>
+        <label>Profile URL <span class="hint">recommended for Matchbox</span><input id="profile" name="profile"
+            type="url" placeholder="http://hl7.org/fhir/uv/ips/StructureDefinition/Bundle-uv-ips"></label>
         <button type="submit">Validate and propose repairs <span>↗</span></button>
         <p class="note">Original input stays untouched. Clinical values and terminology are never invented.</p>
       </form>
-      <section class="panel result-panel"><div class="panel-heading"><h2>Result</h2><span id="resultBadge" class="badge neutral">WAITING</span></div><div id="result"><p class="empty">Upload a FHIR resource to see validation evidence here.</p></div></section>
+      <section class="panel result-panel">
+        <div class="panel-heading">
+          <h2>Result</h2><span id="resultBadge" class="badge neutral">WAITING</span>
+        </div>
+        <div id="result">
+          <p class="empty">Upload a FHIR resource to see validation evidence here.</p>
+        </div>
+      </section>
+    </section>
+    <section class="panel history-panel">
+      <div class="panel-heading">
+        <h2>Validation history</h2><button id="clearHistory" class="text-button" type="button">Clear history</button>
+      </div>
+      <div id="history">
+        <p class="empty">Completed validation runs will appear here.</p>
+      </div>
     </section>
   </main>
-<script>
-const form = document.querySelector('#validateForm');
-const result = document.querySelector('#result');
-const badge = document.querySelector('#resultBadge');
-const statusText = document.querySelector('#statusText');
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const data = new FormData(form);
-  badge.textContent = 'RUNNING'; badge.className = 'badge running'; statusText.textContent = 'Validating input';
-  result.innerHTML = '<p class="empty">Sending the bundle through local checks and Matchbox...</p>';
-  try {
-    const response = await fetch('/api/validate-file', {method: 'POST', body: data});
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Validation failed');
-    const passed = payload.passed;
-    badge.textContent = passed ? 'PASSED' : 'REVIEW'; badge.className = `badge ${passed ? 'passed' : 'review'}`;
-    statusText.textContent = passed ? 'No blocking errors detected' : 'Review required';
-    const repairs = payload.repairs || [];
-    const issues = (payload.iterations || []).flatMap(item => (item.matchbox?.issues || []).filter(issue => ['error','fatal'].includes(issue.severity)));
-    result.innerHTML = `<div class="metrics"><div><strong>${payload.iterations?.length || 0}</strong><span>cycles</span></div><div><strong>${repairs.length}</strong><span>repairs</span></div><div><strong>${issues.length}</strong><span>blocking issues</span></div></div><h3>${repairs.length ? 'Proposed changes' : 'Repair log'}</h3>${repairs.length ? repairs.map(item => `<article class="repair"><span class="rule">${item.rule}</span><code>${item.before} → ${item.after}</code><p>${item.reason}</p></article>`).join('') : '<p class="empty">No deterministic repair was applied.</p>'}<details><summary>Candidate JSON</summary><pre>${JSON.stringify(payload.candidate, null, 2)}</pre></details>`;
-  } catch (error) { badge.textContent = 'ERROR'; badge.className = 'badge review'; statusText.textContent = 'Request could not complete'; result.innerHTML = `<p class="error">${error.message}</p>`; }
-});
-</script>
+  <script>
+    const form = document.querySelector('#validateForm');
+    const result = document.querySelector('#result');
+    const badge = document.querySelector('#resultBadge');
+    const statusText = document.querySelector('#statusText');
+    const historyElement = document.querySelector('#history');
+    const historyStorageKey = 'fhir-validator-history';
+
+    function readHistory() {
+      try { return JSON.parse(localStorage.getItem(historyStorageKey) || '[]'); } catch (error) { return []; }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+    }
+
+    function renderHistory() {
+      const history = readHistory();
+      if (!history.length) { historyElement.innerHTML = '<p class="empty">Completed validation runs will appear here.</p>'; return; }
+      historyElement.innerHTML = `<div class="history-table"><div class="history-row history-header"><span>Resource</span><span>Profile</span><span>Issues</span><span>Actions</span></div>${history.map((item, index) => `<div class="history-row"><span><strong>${escapeHtml(item.filename)}</strong><small>${escapeHtml(item.time)}</small></span><span class="history-profile">${escapeHtml(item.profile)}</span><span class="issue-counts"><b class="error-count" title="Errors">❌ ${item.errors}</b><b class="warning-count" title="Warnings">⚠️ ${item.warnings}</b><b class="info-count" title="Information">ℹ️ ${item.information}</b></span><span class="history-actions"><button class="icon-button delete-history" data-index="${index}" type="button" title="Remove this run" aria-label="Remove this run">×</button><button class="icon-button restore-history" data-index="${index}" type="button" title="Show this run" aria-label="Show this run">□</button></span></div>`).join('')}</div>`;
+    }
+
+    function addHistory(filename, summary) {
+      const history = readHistory();
+      history.unshift({ filename: filename || 'Uploaded resource', profile: summary.profile || 'Default FHIR validation', errors: summary.errors || 0, warnings: summary.warnings || 0, information: summary.information || 0, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) });
+      localStorage.setItem(historyStorageKey, JSON.stringify(history.slice(0, 25)));
+      renderHistory();
+    }
+
+    document.querySelector('#clearHistory').addEventListener('click', () => { localStorage.removeItem(historyStorageKey); renderHistory(); });
+    historyElement.addEventListener('click', event => {
+      const button = event.target.closest('button[data-index]');
+      if (!button) return;
+      const history = readHistory();
+      const index = Number(button.dataset.index);
+      if (button.classList.contains('delete-history')) { history.splice(index, 1); localStorage.setItem(historyStorageKey, JSON.stringify(history)); renderHistory(); }
+      if (button.classList.contains('restore-history')) { statusText.textContent = `${history[index].filename} was validated at ${history[index].time}`; }
+    });
+    renderHistory();
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      badge.textContent = 'RUNNING'; badge.className = 'badge running'; statusText.textContent = 'Validating input';
+      result.innerHTML = '<p class="empty">Sending the bundle through local checks and Matchbox...</p>';
+      try {
+        const response = await fetch('/api/validate-file', { method: 'POST', body: data });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Validation failed');
+        const passed = payload.passed;
+        badge.textContent = passed ? 'PASSED' : 'REVIEW'; badge.className = `badge ${passed ? 'passed' : 'review'}`;
+        statusText.textContent = passed ? 'No blocking errors detected' : 'Review required';
+        const repairs = payload.repairs || [];
+        const finalIteration = payload.iterations?.[payload.iterations.length - 1] || {};
+        const matchboxIssues = finalIteration.matchbox?.issues || [];
+        const issues = matchboxIssues.filter(issue => ['error', 'fatal'].includes(issue.severity));
+        const summary = payload.summary || {};
+        addHistory(payload.filename, summary);
+        const issueMarkup = matchboxIssues.length ? matchboxIssues.map(issue => `<article class="matchbox-issue ${escapeHtml(issue.severity)}"><header><strong>${escapeHtml(issue.severity.toUpperCase())}</strong><span>${escapeHtml(issue.code)}</span></header><p>${escapeHtml(issue.diagnostics || issue.details || 'Matchbox returned an issue without diagnostic text.')}</p>${issue.location?.length ? `<small>Location: ${escapeHtml(issue.location.join(', '))}</small>` : ''}${issue.expression?.length ? `<small>FHIRPath: ${escapeHtml(issue.expression.join(', '))}</small>` : ''}</article>`).join('') : '<p class="empty">Matchbox returned no issues.</p>';
+        result.innerHTML = `<div class="run-summary"><strong>${summary.validator || 'Validator'} test ${summary.status === 'passed' ? 'completed successfully' : 'completed with items for review'}</strong><span>${summary.profile || 'Default FHIR validation'}</span><small>${summary.cycles || 0} validation cycle${summary.cycles === 1 ? '' : 's'} · ${summary.errors || 0} error${summary.errors === 1 ? '' : 's'} · ${summary.warnings || 0} warning${summary.warnings === 1 ? '' : 's'} · ${summary.information || 0} informational</small></div><div class="metrics"><div><strong>${payload.iterations?.length || 0}</strong><span>cycles</span></div><div><strong>${repairs.length}</strong><span>repairs</span></div><div><strong>${issues.length}</strong><span>blocking issues</span></div></div><h3>Matchbox findings</h3><div class="matchbox-issues">${issueMarkup}</div><h3>${repairs.length ? 'Proposed changes' : 'Repair log'}</h3>${repairs.length ? repairs.map(item => `<article class="repair"><span class="rule">${escapeHtml(item.rule)}</span><code>${escapeHtml(item.before)} → ${escapeHtml(item.after)}</code><p>${escapeHtml(item.reason)}</p>${item.source_diagnostic ? `<small>Source diagnostic: ${escapeHtml(item.source_diagnostic)}</small>` : ''}</article>`).join('') : '<p class="empty">No deterministic repair was applied.</p>'}<details><summary>Candidate JSON</summary><pre>${escapeHtml(JSON.stringify(payload.candidate, null, 2))}</pre></details>`;
+      } catch (error) { badge.textContent = 'ERROR'; badge.className = 'badge review'; statusText.textContent = 'Request could not complete'; result.innerHTML = `<p class="error">${error.message}</p>`; }
+    });
+  </script>
 </body>
+
 </html>
