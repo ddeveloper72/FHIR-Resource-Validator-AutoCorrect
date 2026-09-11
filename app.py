@@ -60,5 +60,10 @@ def health():
     return jsonify({"status": "ok", "matchbox_configured": bool(os.getenv("MATCHBOX_URL", "").strip())})
 
 
+@app.get("/favicon.ico")
+def favicon():
+    return "", 204
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=int(os.getenv("PORT", "5000")), debug=True)
