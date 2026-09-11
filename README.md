@@ -29,7 +29,9 @@ Copy-Item .env.example .env
 python app.py
 ```
 
-Open <http://127.0.0.1:5000>. Set `MATCHBOX_URL` in `.env` to a local or remote Matchbox FHIR endpoint, for example `https://test.ahdis.ch/matchboxv3/fhir`. A profile URL should be supplied for IPS/EU-EPS validation.
+Open <http://127.0.0.1:5000>. The `.env` file must exist for Matchbox validation to run; otherwise the application uses local checks only. Set `MATCHBOX_URL` to the FHIR endpoint, not the Matchbox web page, for example `https://test.ahdis.ch/matchboxv3/fhir`. The application calls `POST /$validate` on that endpoint. Supply the profile URL in the form when validating against IPS/EU-EPS or another implementation guide. The browser result shows the final Matchbox OperationOutcome findings, including diagnostics, severity, location, and FHIRPath expression.
+
+Automatic repairs are deliberately bounded and evidence-based. A repair is applied only when a Bundle reference uniquely maps to one entry `fullUrl`; the candidate is then sent back through Matchbox. Each repair records its validation iteration, source diagnostic, and applied status. Matchbox terminology, profile, clinical-data, and ambiguous-reference findings remain review items.
 
 CLI/offline smoke check:
 
