@@ -55,7 +55,15 @@ def summarize_outcome(outcome: dict[str, Any]) -> dict[str, Any]:
             "severity": issue.get("severity", "information"),
             "code": issue.get("code", "unknown"),
             "diagnostics": issue.get("diagnostics") or details.get("text", ""),
+            "details": details.get("text", ""),
+            "location": issue.get("location", []),
             "expression": issue.get("expression", []),
         })
     errors = [issue for issue in normalized if issue["severity"] in {"error", "fatal"}]
-    return {"passed": not errors, "issues": normalized, "error_count": len(errors), "warning_count": sum(i["severity"] == "warning" for i in normalized)}
+    return {
+        "passed": not errors,
+        "issues": normalized,
+        "error_count": len(errors),
+        "warning_count": sum(issue["severity"] == "warning" for issue in normalized),
+        "info_count": sum(issue["severity"] == "information" for issue in normalized),
+    }
